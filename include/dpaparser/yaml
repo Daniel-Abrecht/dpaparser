@@ -1,0 +1,239 @@
+// Copyright (c) 2019 Daniel Abrecht
+// SPDX-License-Identifier: WTFPL OR MIT
+
+#ifndef GEN_YAMLPARSER_GENERATOR
+#define GEN_YAMLPARSER_GENERATOR
+
+#include <stdio.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <dpaparser/dpaparser.h>
+
+struct gen_parser;
+
+#ifdef PARSABLE_STRUCTURES
+
+#define BLOCK(X,Y) typedef struct gen_ ## X gen_ ## X ## _t;
+#define ENTRY(X,Y,Z)
+#define PRIVATE(...)
+PARSABLE_STRUCTURES
+#undef PRIVATE
+#undef ENTRY
+#undef BLOCK
+
+#define BLOCK(X,Y) struct gen_ ## X {GEN_UNPACK Y};
+#define ENTRY(X,Y,Z) gen_ ## X ## _t* Z;
+#define PRIVATE(...) __VA_ARGS__
+PARSABLE_STRUCTURES
+#undef PRIVATE
+#undef ENTRY
+#undef BLOCK
+
+#define BLOCK(X,Y) bool parse_yaml_ ## X( struct gen_parser*, gen_ ## X ## _t** );
+#define ENTRY(X,Y,Z)
+#define PRIVATE(...)
+PARSABLE_STRUCTURES
+#undef PRIVATE
+#undef ENTRY
+#undef BLOCK
+
+#define BLOCK(X,Y) void free_yaml_ ## X( gen_ ## X ## _t** );
+#define ENTRY(X,Y,Z)
+#define PRIVATE(...)
+PARSABLE_STRUCTURES
+#undef PRIVATE
+#undef ENTRY
+#undef BLOCK
+
+#endif
+
+bool parse_yaml(FILE* file, void** ret, bool(*)(struct gen_parser* s, void** ret), void(*)(void** ret) );
+
+bool parse_yaml_string( struct gen_parser* s, gen_string_t** ch );
+bool parse_yaml_integer( struct gen_parser* s, gen_integer_t** ch );
+bool parse_yaml_boolean( struct gen_parser* s, gen_boolean_t** ch );
+bool parse_yaml_map( struct gen_parser* s, gen_map_t** ch );
+bool parse_yaml_list( struct gen_parser* s, gen_list_t** ch );
+bool parse_yaml_skip_unknown_mapping( struct gen_parser* s );
+
+void free_yaml_string( gen_string_t** ch );
+bool parse_integer( size_t length, const char value[length], gen_integer_t* c );
+void free_yaml_integer( gen_integer_t** ch );
+void free_yaml_boolean( gen_boolean_t** ch );
+void free_yaml_map( gen_map_t** ch );
+void free_yaml_list( gen_list_t** ch );
+
+#ifndef PARSE_YAML
+#define PARSE_YAML( T, file, R ) \
+  parse_yaml( \
+    file, \
+    (void**)((struct{gen_ ## T ## _t** x;}){.x=(R)}).x, \
+    (bool(*)(struct gen_parser*,void**))((struct{bool(*x)(struct gen_parser*,gen_ ## T ## _t**);}){.x=(&parse_yaml_ ## T)}).x, \
+    (void(*)(void**))((struct{void(*x)(gen_ ## T ## _t**);}){.x=(&free_yaml_ ## T)}).x \
+  )
+#endif
+
+#ifndef FREE_YAML
+#define FREE_YAML( T, R ) free_yaml_ ## T( R )
+#endif
+
+#if defined( GEN_YAML_PARSER_INTERNALS ) || defined(GEN_GENERATE_CODE)
+#include <yaml.h>
+
+enum parser_state {
+  PARSER_STATE_KEY,
+  PARSER_STATE_VALUE,
+  PARSER_STATE_MAPPING,
+  PARSER_STATE_SEQUENCE
+};
+
+typedef struct gen_parser {
+  yaml_parser_t* parser;
+  const char* value;
+  size_t length;
+  enum parser_state state;
+  bool done;
+} gen_parser_t;
+#endif
+
+#ifdef PARSABLE_STRUCTURES
+#ifndef GEN_GENERATE_CODE
+#undef PARSABLE_STRUCTURES
+#else
+
+#include <stdio.h>
+#include <string.h>
+
+#define ENTRY(X,Y,Z) \
+  if( length == sizeof(Y)-1 && !memcmp(Y,key,length) ){ \
+    if( !parse_yaml_ ## X( s, &c->Z ) ){ \
+      yaml_token_delete(&token); \
+      fprintf(stderr,"Failed to parse key %.*s\n",(int)length,key); \
+      if(key) \
+        free( key );\
+      return false; \
+    } \
+  }else 
+
+#define BLOCK(X,Y) \
+  bool parse_yaml_ ## X( gen_parser_t* s, gen_ ## X ## _t** ch ){ \
+    yaml_token_t token; \
+    \
+    if( s->state != PARSER_STATE_MAPPING ) \
+      return false; \
+    \
+    size_t length = 0; \
+    char* key = 0; \
+    bool done = false; \
+    \
+    gen_ ## X ## _t* c = calloc(1,sizeof(gen_ ## X ## _t)); \
+    if(!c){ \
+      perror("calloc failed"); \
+      s->done = true; \
+      return false; \
+    } \
+    *ch = c; \
+    \
+    do { \
+      \
+      if( !yaml_parser_scan(s->parser, &token) ){ \
+        fprintf(stderr,"yaml_parser_scan failed"); \
+        s->done = true; \
+        return false; \
+      } \
+      \
+      bool next = false; \
+      \
+      switch( token.type ){ \
+        case YAML_KEY_TOKEN: { \
+          s->state = PARSER_STATE_KEY; \
+        } break; \
+        case YAML_VALUE_TOKEN: { \
+          s->state = PARSER_STATE_VALUE; \
+        } break; \
+        case YAML_SCALAR_TOKEN: { \
+          if( s->state == PARSER_STATE_KEY ){ \
+            length = token.data.scalar.length; \
+            key = malloc(length+1); \
+            if(!key){ \
+              perror("calloc failed"); \
+              s->done = true; \
+              return false; \
+            } \
+            memcpy(key,token.data.scalar.value,length); \
+            key[length] = 0; \
+          }else{ \
+            s->value = (const char*)token.data.scalar.value; \
+            s->length = token.data.scalar.length; \
+            next = true; \
+          } \
+        } break; \
+        case YAML_BLOCK_SEQUENCE_START_TOKEN: { \
+          s->state = PARSER_STATE_SEQUENCE; \
+          next = true; \
+        } break; \
+        case YAML_BLOCK_MAPPING_START_TOKEN: { \
+          s->state = PARSER_STATE_MAPPING; \
+          next = true; \
+        } break; \
+        case YAML_BLOCK_END_TOKEN: { \
+          done = true; \
+        } break; \
+        default: break; \
+      } \
+      \
+      if( next ){ \
+        GEN_UNPACK Y { \
+          fprintf(stderr,"Warning: unknown key %.*s\n",(int)length,key); \
+          if( s->state == PARSER_STATE_MAPPING ){ \
+            parse_yaml_skip_unknown_mapping( s ); \
+          } \
+        } \
+        if(key) \
+          free( key );\
+        key = 0; \
+      } \
+      \
+      s->done = token.type == YAML_STREAM_END_TOKEN; \
+      yaml_token_delete(&token); \
+      \
+    } while( !s->done && !done ); \
+    \
+    if(key) \
+      free( key );\
+    \
+    return true; \
+  }
+
+#define PRIVATE(...)
+
+PARSABLE_STRUCTURES
+
+#undef PRIVATE
+#undef BLOCK
+#undef ENTRY
+
+#define BLOCK(X,Y) void free_yaml_ ## X( gen_ ## X ## _t** ch ){ \
+  gen_ ## X ## _t* c = *ch; \
+  if(!c) return; \
+  *ch = 0; \
+  GEN_UNPACK Y \
+  free(c); \
+}
+
+#define ENTRY(X,Y,Z) free_yaml_ ## X(&c->Z);
+#define PRIVATE(...)
+
+PARSABLE_STRUCTURES
+
+#undef PRIVATE
+#undef ENTRY
+#undef BLOCK
+
+
+#undef PARSABLE_STRUCTURES
+
+#endif
+#endif
+
+#endif

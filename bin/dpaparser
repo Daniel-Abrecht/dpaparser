@@ -1,0 +1,41 @@
+#!/usr/bin/make -f
+#
+# Copyright (c) 2019 Daniel Abrecht
+# SPDX-License-Identifier: WTFPL OR MIT
+#
+
+CC = gcc
+BUILD = build
+
+INCLUDES += -Iinclude
+INCLUDES += -I$(TEMPLATE)
+
+OPTIONS = -std=c99 -Wall -Werror -Wextra -pedantic
+OPTIONS += $(INCLUDES)
+
+SOURCES = $(wildcard $(TEMPLATE)/*.template) $(wildcard $(TEMPLATE)/**/*.template)
+OBJECTS = $(addsuffix .o,$(addprefix $(BUILD)/,$(SOURCES)))
+
+ifndef TEMPLATE
+$(warning TEMPLATE must be defined)
+ERR=1
+endif
+
+ifndef TEMPLATE_A
+$(warning TEMPLATE_A must be defined)
+ERR=1
+endif
+
+ifdef ERR
+$(error Missing parameters)
+endif
+
+all: $(TEMPLATE_A)
+
+$(BUILD)/%.template.o: %.template
+	@mkdir -p "$(dir $@)"
+	$(CC) -x c -D GEN_GENERATE_CODE $(OPTIONS) -c $< -o $@
+
+$(TEMPLATE_A): $(OBJECTS)
+	rm -f "$@"
+	ar crs "$@" $^
