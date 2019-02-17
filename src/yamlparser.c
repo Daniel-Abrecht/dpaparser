@@ -143,6 +143,8 @@ bool parse_yaml_map( struct gen_parser* s, gen_map_t** ch ){
   }
   *ch = c;
 
+  bool empty = true;
+
   do {
 
     if( !yaml_parser_scan(s->parser, &token) ){
@@ -163,6 +165,28 @@ bool parse_yaml_map( struct gen_parser* s, gen_map_t** ch ){
       case YAML_SCALAR_TOKEN: {
         if( s->state == PARSER_STATE_KEY ){
           length = token.data.scalar.length;
+          if(key){
+            if(!empty){
+              fprintf(stderr,"Warning: failed to process key \"%s\". Wrong value type?\n", key);
+              free(key);
+              key = 0;
+            }else{
+              gen_map_entry_t* el = realloc( c->entries, (c->length+1) * sizeof(gen_map_entry_t) );
+              if(!el){
+                perror("realloc failed");
+                s->done = true;
+                return false;
+              }
+              c->entries = el;
+              gen_map_entry_t* e = el + c->length;
+              e->key.data = key;
+              e->key.length = length;
+              e->value.data = 0;
+              e->value.length = 0;
+              c->length++;
+              key = 0;
+            }
+          }
           key = malloc(length+1);
           if(!key){
             perror("malloc failed");
@@ -171,23 +195,28 @@ bool parse_yaml_map( struct gen_parser* s, gen_map_t** ch ){
           }
           memcpy(key,token.data.scalar.value,length);
           key[length] = 0;
+          empty = true;
         }else{
+          empty = false;
           s->value = (const char*)token.data.scalar.value;
           s->length = token.data.scalar.length;
           next = true;
         }
       } break;
+      case YAML_FLOW_MAPPING_START_TOKEN:
       case YAML_BLOCK_MAPPING_START_TOKEN: {
         fprintf(stderr,"Expected <key>:<value> list\n");
         s->done = true;
-        if(key)
+        if(key){
           free(key);
+          key = 0;
+        }
         return false;
       } break;
       case YAML_BLOCK_END_TOKEN: {
         done = true;
       } break;
-      default: break;
+      default: empty = false; break;
     }
 
     if( next ){
@@ -219,8 +248,10 @@ bool parse_yaml_map( struct gen_parser* s, gen_map_t** ch ){
     yaml_token_delete(&token);
   } while( !s->done && !done );
 
-  if(key)
+  if(key){
     free( key );
+    key = 0;
+  }
 
   return true;
 }
@@ -266,7 +297,7 @@ bool parse_yaml_list( struct gen_parser* s, gen_list_t** ch ){
         next = true;
       } break;
       case YAML_BLOCK_MAPPING_START_TOKEN: {
-        fprintf(stderr,"Expected <key>:<value> list\n");
+        fprintf(stderr,"Expected - <key> list\n");
         s->done = true;
         return false;
       } break;
