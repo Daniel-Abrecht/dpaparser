@@ -146,7 +146,7 @@ bool parse_yaml_map( struct gen_parser* s, gen_map_t** ch ){
   do {
 
     if( !yaml_parser_scan(s->parser, &token) ){
-      fprintf(stderr,"yaml_parser_scan failed");
+      fprintf(stderr,"yaml_parser_scan failed\n");
       s->done = true;
       return false;
     }
@@ -244,7 +244,7 @@ bool parse_yaml_list( struct gen_parser* s, gen_list_t** ch ){
   do {
 
     if( !yaml_parser_scan(s->parser, &token) ){
-      fprintf(stderr,"yaml_parser_scan failed");
+      fprintf(stderr,"yaml_parser_scan failed\n");
       s->done = true;
       return false;
     }
@@ -310,7 +310,7 @@ bool parse_yaml_skip_unknown_mapping( struct gen_parser* s ){
   do {
     yaml_token_t token;
     if( !yaml_parser_scan(s->parser, &token) ){
-      fprintf(stderr,"yaml_parser_scan failed");
+      fprintf(stderr,"yaml_parser_scan failed\n");
       s->done = true;
       return false;
     }
@@ -351,7 +351,7 @@ bool parse_yaml(FILE* file, void** ret, bool(*parser_func)(gen_parser_t* s, void
   do {
     yaml_token_t token;
     if( !yaml_parser_scan(&parser, &token) ){
-      fprintf(stderr,"yaml_parser_scan failed");
+      fprintf(stderr,"yaml_parser_scan failed\n");
       goto failed_after_parser_initialize;
     }
     if( token.type == YAML_BLOCK_MAPPING_START_TOKEN )
